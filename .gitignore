@@ -51,9 +51,12 @@ models/
 # Docker
 *.pid
 docker-compose.override.yml
+**/db_data/
+**/volume/
 
 # macOS
 .DS_Store
-
+*.bak
+*.tmp
 # Windows
 Thumbs.db
