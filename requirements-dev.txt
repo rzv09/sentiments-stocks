@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 sqlalchemy>=2.0
-psycopg[binary]
+psycopg[binary]     # psycopg 3, preferred
 pydantic
 requests
 beautifulsoup4
@@ -16,3 +16,4 @@ ruff
 isort
 pre-commit
 python-dotenv
+lxml                  # XML/HTML parser used by fetch_news.py
