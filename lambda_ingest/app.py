@@ -7,15 +7,17 @@ import urllib.parse
 import requests
 import feedparser
 import boto3
+from botocore.exceptions import ClientError
 
 # logger setup
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
+    format="%(asctime)s %(levelname)s %(message)s",
+    force=True,
 )
 
 log = logging.getLogger(__name__)
-
+log.setLevel(logging.INFO)
 # env variables
 table_name = os.getenv("TABLE_NAME", "SentimentsStocksRawNews")
 tickers_str = os.getenv("TICKERS", "NVDA,TSM,ASML,AVGO")
@@ -123,3 +125,80 @@ def _get_with_retry(url:str, timeout: float, retries: int) -> str:
             wait = min(wait*2, MAX_WAIT)  # exponential back-off
             continue
     raise RuntimeError("Unreachable code reached in _get_with_retry")
+
+def _iso_utc(struct_time_or_none) -> str:
+    """Convert feedparser's published_parsed to ISO 8601 UTC string."""
+    if not struct_time_or_none: return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    # using * unpacks the tuple into positional arguments
+    else: return datetime.datetime(*struct_time_or_none[:6], tzinfo=datetime.timezone.utc).isoformat()
+
+def handler(event, context):
+    """Lambda entrypoint: fetch RSS for each ticker, canonicalize, dedupe, store."""
+    inserted = 0
+    dupes = 0
+
+    # keep a set to avoid double-inserting the same URL if it appears for multiple tickers in one run
+    seen_urls = set()
+
+    for ticker in tickers:
+        feed_url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region={REGION}&lang={LANG}"
+
+        try:
+            rss_text = _get_with_retry(feed_url, timeout=TIMEOUT, retries=RETRIES)
+        except Exception as e:
+            log.warning("Fetch failed for %s: %s", ticker, str(e))
+            continue
+
+        parsed = feedparser.parse(rss_text)
+
+        for entry in parsed.entries:
+            link = entry.get("link") or ""
+            title = entry.get("title") or ""
+            published_iso = _iso_utc(entry.get("published_parsed"))
+            
+            url = _canon_url(link)
+            if not url:
+                continue
+
+            if url in seen_urls:
+                continue
+
+            seen_urls.add(url)
+
+            url_hash = _sha1(url)
+            if not url_hash:
+                continue
+
+            # build the item for DynamoDB
+
+            item = {
+                "url_hash": url_hash,
+                "url": url,
+                "ticker": ticker,
+                "headline": title,
+                "published_utc": published_iso,
+                "source": "yahoo_rss",
+                "ingested_utc": datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat(),
+            }
+
+            # write to DynamoDB
+            try:
+                table.put_item(
+                    Item=item,
+                    ConditionExpression="attribute_not_exists(url_hash)"
+                )
+                inserted += 1
+            except ClientError as e:
+                if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                    dupes += 1
+                else:
+                    raise
+    
+    log.info("Ingest complete: inserted=%s dupes=%s tickers=%s", inserted, dupes, ",".join(tickers))
+    return {"inserted": inserted, "dupes": dupes, "tickers": tickers}
+
+
+
+
+if __name__=="__main__":
+    print(handler({}, None))
