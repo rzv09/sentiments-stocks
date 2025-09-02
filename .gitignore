@@ -30,6 +30,7 @@ data/raw/
 data/processed/
 *.csv
 *.json
+!ml/eval/*.json
 *.parquet
 
 # Model artifacts
@@ -60,3 +61,5 @@ docker-compose.override.yml
 *.tmp
 # Windows
 Thumbs.db
+
+.joblib

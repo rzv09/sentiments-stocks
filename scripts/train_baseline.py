@@ -1,13 +1,15 @@
-import numpy
+from pathlib import Path
 import pandas as pd
-import csv
-
+import joblib
+import datetime
+import json
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
 
-DATA_PATH = "../../data/raw/Sentences_AllAgree.txt"
+DATA_PATH = "data/raw/Sentences_AllAgree.txt"
 
 def load_data() -> "pd.DataFrame":
     """
@@ -57,7 +59,7 @@ def make_pipeline() -> "Pipeline":
 
 def train_and_eval(df_bin: "pd.DataFrame", pipeline: "Pipeline"):
     """
-    TODO:
+    Trains basic LR and saves it.
     - X = df_bin['text'], y = df_bin['label'] (0/1)
     - train_test_split(stratify=y, test_size=0.2, random_state=42)
     - fit vectorizer on X_train; transform X_train/X_test
@@ -72,5 +74,45 @@ def train_and_eval(df_bin: "pd.DataFrame", pipeline: "Pipeline"):
 
     pred = pipeline.predict(X_test)
     proba = pipeline.predict_proba(X_test)
+    proba_pos = proba[:, 1]
 
-    return pipeline
+    accuracy = accuracy_score(y_test, pred)
+    precision = precision_score(y_test, pred)
+    recall = recall_score(y_test, pred)
+    f1 = f1_score(y_test, pred)
+    auc = roc_auc_score(y_test, proba_pos)
+    cm = confusion_matrix(y_test, pred).tolist()
+
+    metrics = {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "n_train": int(len(y_train)),
+        "n_test": int(len(y_test)),
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "roc_auc": auc,
+        "confusion_matrix": cm,
+        "model_version": "baseline-0.1",
+    }
+    
+    model_dir = Path("ml/models/baseline")
+    eval_dir = Path("ml/eval")
+    model_dir.mkdir(parents=True, exist_ok=True)
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    
+    joblib.dump(pipeline, model_dir / "tfidf_logreg.joblib")
+    (model_dir / "MODEL_VERSION").write_text("baseline-0.1")
+    (eval_dir / "baseline_metrics.json").write_text(json.dumps(metrics, indent=2))
+
+
+    return pipeline, metrics
+
+def main():
+    df = load_data()
+    df = to_binary_labels(df)
+    pipeline = make_pipeline()
+    fitted_pipeline, metrics = train_and_eval(df, pipeline)
+
+if __name__ == "__main__":
+    main()
