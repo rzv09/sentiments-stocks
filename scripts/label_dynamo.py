@@ -2,6 +2,10 @@ import argparse
 import joblib
 import boto3
 from boto3.dynamodb.conditions import Attr
+from botocore.exceptions import ClientError
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 # --- TODO 1: Load the pipeline ---
 def load_pipeline(path: str):
@@ -10,7 +14,8 @@ def load_pipeline(path: str):
     - joblib.load(path) 
     - return pipeline (use ["pipeline"] if you saved it in a dict)
     """
-    pass
+    pipeline_path = Path(path)
+    return joblib.load(path)
 
 
 # --- TODO 2: Fetch unlabeled items ---
@@ -23,7 +28,22 @@ def fetch_unlabeled(table, limit: int):
     - Handle pagination via LastEvaluatedKey if needed
     - Return a list of items (each is a dict)
     """
-    pass
+    items = []
+    scan_kwargs = {
+        "FilterExpression": Attr("sentiment").not_exists(),
+        "Limit": min(limit, 100)
+    }
+    while True:
+        response = table.scan(**scan_kwargs)
+        items.extend(response["Items"])
+
+        if "LastEvaluatedKey" not in response or len(items) >= limit:
+            break # no more pages or hit our requested limit
+
+        scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+
+    return items[:limit]
+
 
 
 # --- TODO 3: Predict sentiment ---
@@ -35,7 +55,17 @@ def predict_batch(pipeline, texts: list[str]) -> list[dict]:
     - Map 1 -> "positive", 0 -> "negative"
     - Return list of dicts: { "label": str, "confidence": float }
     """
-    pass
+    label_map = {
+        1: "positive",
+        0: "negative"
+    }
+    preds = pipeline.predict(texts)
+    probas = pipeline.predict_proba(texts)[:, 1]
+
+    return [
+        {"label": label_map[p], "confidence": float(prob)}
+        for p, prob in zip(preds, probas)
+    ]
 
 
 # --- TODO 4: Update DynamoDB ---
@@ -51,7 +81,20 @@ def update_item(table, url_hash: str, sentiment: str, confidence: float):
     - Wrap in try/except:
         * If ConditionalCheckFailedException -> item already labeled
     """
-    pass
+    try:
+        table.update_item(
+            Key={"url_hash": url_hash},
+            UpdateExpression="SET sentiment = :s, confidence = :c",
+            ExpressionAttributeValues={":s": sentiment, ":c": Decimal(str(confidence))},
+            ConditionExpression="attribute_not_exists(sentiment)"
+        )
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            print("Conditional check failed. Item already has sentiment field.")
+            return False
+        else:
+            raise e
 
 
 # --- Main driver ---
@@ -84,15 +127,11 @@ def main():
             continue
 
         pred = predict_batch(pipeline, [text])[0]
-        try:
-            update_item(table, url_hash, pred["label"], float(pred["confidence"]))
+
+        if update_item(table, url_hash, pred["label"], float(pred["confidence"])):
             updated += 1
-        except Exception as e:
-            # If duplicate -> count as skipped
-            if "ConditionalCheckFailedException" in str(e):
-                skipped += 1
-            else:
-                raise
+        else:
+            skipped += 1
 
     print(f"Finished: updated={updated}, skipped={skipped}, total={len(items)}")
     
