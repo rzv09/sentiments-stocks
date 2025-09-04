@@ -3,6 +3,7 @@ import joblib
 import logging
 import boto3
 import os
+import types
 from boto3.dynamodb.conditions import Attr
 from botocore.exceptions import ClientError
 from pathlib import Path
@@ -67,7 +68,7 @@ def fetch_unlabeled(table, limit: int):
     return items[:limit]
 
 
-def predict_batch(pipeline, texts: list[str], threshold: float = THRESHOLD) -> list[dict]:
+def predict_batch(pipeline, texts: list[str], threshold: float) -> list[dict]:
     probas = pipeline.predict_proba(texts)[:, 1]
     labels = ["positive" if p >= threshold else "negative" for p in probas]
     return [{"label": lbl, "confidence": float(p)} for lbl, p in zip(labels, probas)]
@@ -109,7 +110,7 @@ def handler(event, context):
     log.info("Labeler start: limit=%s threshold=%s table=%s", BATCH_LIMIT, THRESHOLD, TABLE_NAME)
 
     # Fetch items
-    items = fetch_unlabeled(table, BATCH_LIMIT)
+    items = fetch_unlabeled(table, int(BATCH_LIMIT))
 
     updated = 0
     skipped = 0
@@ -122,7 +123,7 @@ def handler(event, context):
             skipped += 1
             continue
 
-        pred = predict_batch(_PIPELINE, [text])[0]
+        pred = predict_batch(_PIPELINE, [text], float(THRESHOLD))[0]
 
         if update_item(table, url_hash, pred["label"], float(pred["confidence"])):
             updated += 1
