@@ -1,4 +1,6 @@
 import boto3
+from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 import logging
 from typing import Any, Dict, List, Tuple, Optional
 import os
@@ -105,8 +107,22 @@ def _query_news(
         ExclusiveStartKey=last_evaluated_key (if provided)
     - Return (items, new_last_evaluated_key)
     """
-    pass
-
+    kwargs = {
+        "IndexName": INDEX_NAME,
+        "KeyConditionExpression":Key("ticker").eq(ticker) & Key("published_utc").between(start_iso, end_iso),
+        "Limit": limit,
+        "ScanIndexForward":False,
+        "ExclusiveStartKey":last_evaluated_key   
+    }
+    try:
+        response = _table.query(**kwargs)
+        items = response["Items"]
+        last_evaluated_key = response["LastEvaluatedKey"] or None
+        return items, last_evaluated_key
+    except ClientError as e:
+        log.error("DynamoDB query failed", extra={"error": str(e), "kwargs": kwargs})
+        raise
+    
 def _partition_sentiment(
     items: List[Dict[str, Any]],
     min_conf: Optional[float] = None,
