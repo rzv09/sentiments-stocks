@@ -3,7 +3,7 @@ import logging
 from typing import Any, Dict, List, Tuple, Optional
 import os
 import json
-
+from datetime import datetime, timezone, timedelta
 """
 The lambda is exposed through AWS API Gateway. 
 The webapp can communicate with the Lambda through this API Gateway.
@@ -82,12 +82,11 @@ def _parse_event(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def _time_window(hours: int) -> Tuple[str, str]:
     """
-    TODO: Compute ISO 8601 UTC start/end strings for the window.
-    - now = datetime.now(timezone.utc)
-    - start = now - timedelta(hours=hours)
-    - return (start_iso, now_iso) with .isoformat()
+    Compute ISO 8601 UTC start/end strings for the window.
     """
-    pass
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(hours=hours)
+    return (start.isoformat(), now.isoformat())
 
 def _query_news(
     ticker: str,
