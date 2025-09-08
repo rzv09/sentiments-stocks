@@ -1,0 +1,157 @@
+import boto3
+import logging
+from typing import Any, Dict, List, Tuple, Optional
+import os
+import json
+
+"""
+The lambda is exposed through AWS API Gateway. 
+The webapp can communicate with the Lambda through this API Gateway.
+"""
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    force=True
+)
+log = logging.getLogger(__name__)
+
+TABLE_NAME = os.getenv("TABLE_NAME", "SentimentsStocksRawNews")
+INDEX_NAME = os.getenv("INDEX_NAME", "")
+DEFAULT_WINDOW_HOURS = os.getenv("DEFAULT_WINDOW_HOURS", 24)
+MAX_LIMIT = os.getenv("MAX_LIMIT", 100)
+
+_session = boto3.Session()
+_ddb = _session.resource("dynamodb")
+_table = _ddb.Table(TABLE_NAME)
+
+def _ok(body: Dict[str, Any], status: int = 200) -> Dict[str, Any]:
+    """return API Gateway compatible response"""
+
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET,OPTIONS"
+        },
+        "body": json.dumps(body)
+    }
+
+def _err(message: str, status: int = 400) -> Dict[str, Any]:
+    "return error response helper with same headers as _ok"
+
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET,OPTIONS"
+        },
+        "body": json.dumps({"error": message})
+    }
+
+def _parse_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract and sanitize query params from API Gateway"""
+    
+    payload = event.get("queryStringParameters") or {}
+    
+    ticker = payload.get("ticker")
+    if not ticker:
+        raise ValueError("ticker is required")
+    ticker_normalized = ticker.strip().upper()
+    
+    hours = int(payload.get("hours", DEFAULT_WINDOW_HOURS))
+    limit = int(payload.get("limit", MAX_LIMIT))
+
+    min_conf_raw = payload.get("min_conf")
+    min_conf = None
+    if min_conf_raw is not None:
+        try:
+            min_conf = float(min_conf_raw)
+            min_conf = max(0.0, min(min_conf, 1.0))
+        except ValueError:
+            min_conf = None
+
+    
+
+    return {"ticker": ticker_normalized,
+                       "hours": hours,
+                       "limit": limit,
+                       "min_conf": min_conf}
+
+def _time_window(hours: int) -> Tuple[str, str]:
+    """
+    TODO: Compute ISO 8601 UTC start/end strings for the window.
+    - now = datetime.now(timezone.utc)
+    - start = now - timedelta(hours=hours)
+    - return (start_iso, now_iso) with .isoformat()
+    """
+    pass
+
+def _query_news(
+    ticker: str,
+    start_iso: str,
+    end_iso: str,
+    limit: int,
+    last_evaluated_key: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """
+    TODO: Query the GSI for a given ticker and time range.
+    - Use table.query with:
+        IndexName=INDEX_NAME
+        KeyConditionExpression=Key("ticker").eq(ticker) & Key("published_utc").between(start_iso, end_iso)
+        Limit=limit
+        ScanIndexForward=False  # newest first
+        ExclusiveStartKey=last_evaluated_key (if provided)
+    - Return (items, new_last_evaluated_key)
+    """
+    pass
+
+def _partition_sentiment(
+    items: List[Dict[str, Any]],
+    min_conf: Optional[float] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    TODO: Split items into 'positive' and 'negative' lists.
+    - For each item:
+        label = item.get("sentiment")  # may be missing if unlabeled; skip those
+        conf = float(item.get("confidence", 0))
+        if min_conf is not None and conf < min_conf: skip
+        Add compact dicts (headline, url, published_utc, confidence) to the bucket
+    - Sort each bucket by published_utc desc (if needed; query already returns sorted)
+    - Return {"positive": [...], "negative": [...]}
+    """
+    pass
+
+def _paginate_token_from_event(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    TODO (optional): Accept a client-provided pagination token.
+    - Read query param 'next' (base64-encoded JSON) and decode to dict
+    - Return dict for ExclusiveStartKey or None
+    """
+    pass
+
+def _encode_pagination_token(last_key: Optional[Dict[str, Any]]) -> Optional[str]:
+    """
+    TODO (optional): Encode DynamoDB LastEvaluatedKey as a base64 string for clients.
+    - If last_key is None: return None
+    - Else: json.dumps(last_key).encode -> base64 urlsafe encode -> str
+    """
+    pass
+
+# ---------- handler ----------
+def handler(event, context):
+    """
+    TODO:
+    - Parse params via _parse_event; validate presence of ticker.
+    - Compute time window via _time_window.
+    - (Optional) Read pagination token via _paginate_token_from_event.
+    - Call _query_news with limit; get items + last_key.
+    - Partition by sentiment via _partition_sentiment (respect min_conf).
+    - Build response payload: ticker, window_hours, counts, positive[], negative[], next (if any).
+    - Return with _ok(...).
+    - On exceptions: log.exception(...) and return _err("...").
+    """
+    pass
+
