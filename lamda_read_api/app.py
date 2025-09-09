@@ -122,7 +122,20 @@ def _query_news(
     except ClientError as e:
         log.error("DynamoDB query failed", extra={"error": str(e), "kwargs": kwargs})
         raise
-    
+
+def query_all_news(ticker, start_iso, end_iso, page_limit=200, max_items=2000):
+    items, lek, out = [], None, []
+    while True:
+        # fetch one "page"
+        items, lek = _query_news(ticker, start_iso, end_iso, page_limit, lek)
+        out.extend(items)
+
+        # stop if no more pages OR we hit our max_items guard
+        if not lek or len(out) >= max_items:
+            break
+    return out[:max_items]
+
+
 def _partition_sentiment(
     items: List[Dict[str, Any]],
     min_conf: Optional[float] = None,
@@ -137,7 +150,32 @@ def _partition_sentiment(
     - Sort each bucket by published_utc desc (if needed; query already returns sorted)
     - Return {"positive": [...], "negative": [...]}
     """
-    pass
+    pos_bucket: List[Dict[str, Any]] = []
+    neg_bucket: List[Dict[str, Any]] = []
+
+    for item in items:
+        label = item.get("sentiment")
+        if not label:
+            continue
+        conf = float(item.get("confidence", 0))
+        if min_conf is not None and conf < min_conf:
+            continue
+        compact = {
+            "headline": item.get("headline"),
+            "url": item.get("url"),
+            "published_utc": item.get("published_utc"),
+            "confidence": conf
+        }
+        if label == "positive":
+            pos_bucket.append(compact)
+        else:
+            neg_bucket.append(compact)
+        
+        pos_bucket = sorted(pos_bucket, key=lambda x: x.get("published_utc", ""), reverse=True)
+        neg_bucket = sorted(neg_bucket, key=lambda x: x.get("published_utc", ""), reverse=True)
+    
+    return {"positive": pos_bucket, "negative": neg_bucket}
+
 
 def _paginate_token_from_event(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
