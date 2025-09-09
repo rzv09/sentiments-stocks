@@ -20,6 +20,9 @@ log = logging.getLogger(__name__)
 
 TABLE_NAME = os.getenv("TABLE_NAME", "SentimentsStocksRawNews")
 INDEX_NAME = os.getenv("INDEX_NAME", "")
+if not INDEX_NAME:
+    raise RuntimeError("INDEX_NAME env var is required")
+
 DEFAULT_WINDOW_HOURS = os.getenv("DEFAULT_WINDOW_HOURS", 24)
 MAX_LIMIT = os.getenv("MAX_LIMIT", 100)
 
@@ -171,8 +174,8 @@ def _partition_sentiment(
         else:
             neg_bucket.append(compact)
         
-        pos_bucket = sorted(pos_bucket, key=lambda x: x.get("published_utc", ""), reverse=True)
-        neg_bucket = sorted(neg_bucket, key=lambda x: x.get("published_utc", ""), reverse=True)
+    pos_bucket = sorted(pos_bucket, key=lambda x: x.get("published_utc", ""), reverse=True)
+    neg_bucket = sorted(neg_bucket, key=lambda x: x.get("published_utc", ""), reverse=True)
     
     return {"positive": pos_bucket, "negative": neg_bucket}
 
@@ -206,5 +209,27 @@ def handler(event, context):
     - Return with _ok(...).
     - On exceptions: log.exception(...) and return _err("...").
     """
-    pass
+    try:
+        params = _parse_event(event)
+        start_t, end_t = _time_window(params["hours"])
+        news = query_all_news(params["ticker"], start_t, end_t)
+        partitioned_news = _partition_sentiment(news, params["min_conf"])
+        response_payload = {
+            "ticker": params["ticker"],
+            "window_hours": params["hours"],
+            "count_positive": len(partitioned_news["positive"]),
+            "count_negative": len(partitioned_news["negative"]),
+            "positive": partitioned_news["positive"],
+            "negative": partitioned_news["negative"]
+            
+        }
+
+        return _ok(response_payload)
+
+    except Exception as e:
+        log.exception("Could not retrieve ticker data from DynamoDB using specified params. See exception: %s", str(e))
+        return _err("Could not retrieve ticker data from DynamoDB using specified params. See exception: %s", str(e))
+
+
+
 
