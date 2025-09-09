@@ -115,12 +115,13 @@ def _query_news(
         "KeyConditionExpression":Key("ticker").eq(ticker) & Key("published_utc").between(start_iso, end_iso),
         "Limit": limit,
         "ScanIndexForward":False,
-        "ExclusiveStartKey":last_evaluated_key   
     }
+    if last_evaluated_key:
+        kwargs["ExclusiveStartKey"] = last_evaluated_key
     try:
         response = _table.query(**kwargs)
         items = response["Items"]
-        last_evaluated_key = response["LastEvaluatedKey"] or None
+        last_evaluated_key = response.get("LastEvaluatedKey")
         return items, last_evaluated_key
     except ClientError as e:
         log.error("DynamoDB query failed", extra={"error": str(e), "kwargs": kwargs})
@@ -227,8 +228,8 @@ def handler(event, context):
         return _ok(response_payload)
 
     except Exception as e:
-        log.exception("Could not retrieve ticker data from DynamoDB using specified params. See exception: %s", str(e))
-        return _err("Could not retrieve ticker data from DynamoDB using specified params. See exception: %s", str(e))
+        log.exception("Could not retrieve ticker data from DynamoDB using specified params.")
+        return _err("Could not retrieve ticker data from DynamoDB using specified params.")
 
 
 
