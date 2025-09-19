@@ -1,5 +1,7 @@
 # sentiments-stocks
-The goal is to predict stock movements based on news sentiment
+News classifier based on sentiment analysis (TFIDF + LogReg)
+
+[Click here to view](http://sentiments-stocks-web-27812.s3-website-us-east-1.amazonaws.com)
 
 
 
