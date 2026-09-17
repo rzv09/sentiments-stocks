@@ -31,7 +31,35 @@ ddb = boto3.resource("dynamodb")
 table = ddb.Table(TABLE_NAME)
 
 _PIPELINE = joblib.load(Path(MODEL_PATH))
+
+
+def _verify_model_version(model_path: str, expected: str) -> None:
+    """Fail cold start if the shipped artifact is not the model we claim to be.
+
+    Every row this function writes is stamped with MODEL_VERSION, and consumers
+    branch on that stamp to decide how to read the score. Shipping a stale
+    artifact under a new version string is therefore worse than shipping nothing:
+    it mislabels data silently, and downstream code trusts the label. Refuse.
+    """
+    marker = Path(model_path).parent / "MODEL_VERSION"
+    if not marker.exists():
+        log.warning("No MODEL_VERSION beside %s; cannot verify the artifact is %s",
+                    model_path, expected)
+        return
+    found = marker.read_text().strip()
+    if found != expected:
+        raise RuntimeError(
+            f"Model artifact is '{found}' but this labeler stamps rows as "
+            f"'{expected}'. Rebuild the image after running "
+            f"scripts/train_baseline.py, or set MODEL_VERSION to match.")
+    log.info("Model version verified: %s", found)
+
+
+_verify_model_version(MODEL_PATH, MODEL_VERSION)
 log.info("Model loaded from %s", MODEL_PATH)
+
+# n_classes tells us which contract this artifact actually honours.
+log.info("Model classes: %s", getattr(_PIPELINE, "classes_", "unknown"))
 
 # --- TODO 1: Load the pipeline ---
 def load_pipeline(path: str):
