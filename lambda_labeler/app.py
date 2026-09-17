@@ -20,6 +20,9 @@ TABLE_NAME = os.getenv("TABLE_NAME", "SentimentsStocksRawNews")
 BATCH_LIMIT = os.getenv("BATCH_LIMIT", "100")
 THRESHOLD = os.getenv("THRESHOLD", "0.5")
 MODEL_PATH = os.getenv("MODEL_PATH", "ml/models/baseline/tfidf_logreg.joblib")
+# Stamped onto every row this labeler writes, so a row is always attributable
+# to the model that produced it.
+MODEL_VERSION = os.getenv("MODEL_VERSION", "baseline-0.2-3class")
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -68,14 +71,53 @@ def fetch_unlabeled(table, limit: int):
     return items[:limit]
 
 
-def predict_batch(pipeline, texts: list[str], threshold: float) -> list[dict]:
-    probas = pipeline.predict_proba(texts)[:, 1]
-    labels = ["positive" if p >= threshold else "negative" for p in probas]
-    return [{"label": lbl, "confidence": float(p)} for lbl, p in zip(labels, probas)]
+def predict_batch(pipeline, texts: list[str], threshold: float = None) -> list[dict]:
+    """Score headlines with the 3-class model (baseline-0.2-3class).
+
+    Field contract — read before changing, the wiki depends on it:
+
+      sentiment       argmax label: positive | neutral | negative.
+                      NOTE this changed meaning in v0.2. Under v0.1 it was
+                      P(positive) thresholded at THRESHOLD, and could never be
+                      neutral. Consumers must branch on model_version.
+      confidence      Still P(positive), same DEFINITION as v0.1, and still not
+                      the confidence in the predicted label. But its
+                      DISTRIBUTION has moved a long way: a 3-class softmax gives
+                      neutral most of the mass, so P(positive) now clusters low
+                      (roughly 0.0-0.55 on real headlines) where v0.1 spanned
+                      0.28-0.92 around a 0.70 split. Same meaning, different
+                      scale.
+
+                      So rows from the two models are NOT poolable: any mean,
+                      baseline or drift figure computed across a mix of them is
+                      wrong. Filter by model_version before aggregating. Keeping
+                      the definition stable avoids a second, subtler failure -
+                      a field that silently means two different things - but it
+                      does not make the values interchangeable.
+      sentiment_score P(positive) - P(negative), in [-1, 1]. Signed, with
+                      neutral near zero. This is the field new consumers want.
+      model_version   which model produced the row.
+
+    `threshold` is accepted and ignored; a 3-class argmax has no single cutoff.
+    """
+    proba = pipeline.predict_proba(texts)
+    classes = list(pipeline.classes_)
+    out = []
+    for row in proba:
+        d = dict(zip(classes, (float(v) for v in row)))
+        pos, neg = d.get("positive", 0.0), d.get("negative", 0.0)
+        out.append({
+            "label": max(d, key=d.get),
+            "confidence": pos,
+            "sentiment_score": pos - neg,
+            "model_version": MODEL_VERSION,
+        })
+    return out
 
 
 # --- TODO 4: Update DynamoDB ---
-def update_item(table, url_hash: str, sentiment: str, confidence: float) -> bool:
+def update_item(table, url_hash: str, sentiment: str, confidence: float,
+                sentiment_score: float = None, model_version: str = None) -> bool:
     """
     TODO:
     - table.update_item(
@@ -87,11 +129,22 @@ def update_item(table, url_hash: str, sentiment: str, confidence: float) -> bool
     - Wrap in try/except:
         * If ConditionalCheckFailedException -> item already labeled
     """
+    expr = "SET sentiment = :s, confidence = :c"
+    vals = {":s": sentiment, ":c": Decimal(str(confidence))}
+    if sentiment_score is not None:
+        expr += ", sentiment_score = :ss"
+        vals[":ss"] = Decimal(str(sentiment_score))
+    if model_version is not None:
+        expr += ", model_version = :mv"
+        vals[":mv"] = model_version
     try:
         table.update_item(
             Key={"url_hash": url_hash},
-            UpdateExpression="SET sentiment = :s, confidence = :c",
-            ExpressionAttributeValues={":s": sentiment, ":c": Decimal(str(confidence))},
+            UpdateExpression=expr,
+            ExpressionAttributeValues=vals,
+            # Still only labels unscored items. Re-scoring the existing corpus
+            # under v0.2 is a separate, deliberate backfill — not a side effect
+            # of a routine run.
             ConditionExpression="attribute_not_exists(sentiment)"
         )
         log.info("Updated item with URLHash=%s; sentiment=%s; confidence=%s", url_hash,
@@ -125,7 +178,8 @@ def handler(event, context):
 
         pred = predict_batch(_PIPELINE, [text], float(THRESHOLD))[0]
 
-        if update_item(table, url_hash, pred["label"], float(pred["confidence"])):
+        if update_item(table, url_hash, pred["label"], float(pred["confidence"]),
+                       pred.get("sentiment_score"), pred.get("model_version")):
             updated += 1
         else:
             skipped += 1

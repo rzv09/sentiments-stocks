@@ -1,0 +1,123 @@
+{
+  "selected": {
+    "dataset": "Sentences_AllAgree.txt",
+    "class_weight": "balanced",
+    "C": 10.0
+  },
+  "selection_metric": "macro F1, 5-fold x4 repeated stratified CV",
+  "note": "A single 80/20 split ranked 75Agree above AllAgree; that reversed under repeated CV, so the split result was noise. Cleaner labels beat 34% more data.",
+  "sweep": [
+    {
+      "dataset": "Sentences_AllAgree.txt",
+      "class_weight": "balanced",
+      "C": 10.0,
+      "cv_macro_f1_mean": 0.7912519297426809,
+      "cv_macro_f1_std": 0.026953413970477597,
+      "n": 2264
+    },
+    {
+      "dataset": "Sentences_AllAgree.txt",
+      "class_weight": "balanced",
+      "C": 20.0,
+      "cv_macro_f1_mean": 0.7909957543840099,
+      "cv_macro_f1_std": 0.02278015959795812,
+      "n": 2264
+    },
+    {
+      "dataset": "Sentences_AllAgree.txt",
+      "class_weight": null,
+      "C": 20.0,
+      "cv_macro_f1_mean": 0.7878727948234997,
+      "cv_macro_f1_std": 0.0221300866342259,
+      "n": 2264
+    },
+    {
+      "dataset": "Sentences_AllAgree.txt",
+      "class_weight": "balanced",
+      "C": 4.0,
+      "cv_macro_f1_mean": 0.7875558957944776,
+      "cv_macro_f1_std": 0.025782652554577963,
+      "n": 2264
+    },
+    {
+      "dataset": "Sentences_AllAgree.txt",
+      "class_weight": null,
+      "C": 10.0,
+      "cv_macro_f1_mean": 0.783564013988845,
+      "cv_macro_f1_std": 0.02068753813506233,
+      "n": 2264
+    },
+    {
+      "dataset": "Sentences_AllAgree.txt",
+      "class_weight": null,
+      "C": 4.0,
+      "cv_macro_f1_mean": 0.773954134418458,
+      "cv_macro_f1_std": 0.018638405821326254,
+      "n": 2264
+    },
+    {
+      "dataset": "Sentences_75Agree.txt",
+      "class_weight": "balanced",
+      "C": 10.0,
+      "cv_macro_f1_mean": 0.7543667746390877,
+      "cv_macro_f1_std": 0.017644684111108176,
+      "n": 3453
+    },
+    {
+      "dataset": "Sentences_75Agree.txt",
+      "class_weight": "balanced",
+      "C": 20.0,
+      "cv_macro_f1_mean": 0.7542842009654722,
+      "cv_macro_f1_std": 0.019806464181704023,
+      "n": 3453
+    },
+    {
+      "dataset": "Sentences_75Agree.txt",
+      "class_weight": "balanced",
+      "C": 4.0,
+      "cv_macro_f1_mean": 0.7508357135545319,
+      "cv_macro_f1_std": 0.018567932879467675,
+      "n": 3453
+    },
+    {
+      "dataset": "Sentences_75Agree.txt",
+      "class_weight": null,
+      "C": 20.0,
+      "cv_macro_f1_mean": 0.7437018373365457,
+      "cv_macro_f1_std": 0.020812601830361144,
+      "n": 3453
+    },
+    {
+      "dataset": "Sentences_75Agree.txt",
+      "class_weight": null,
+      "C": 10.0,
+      "cv_macro_f1_mean": 0.7393928045120657,
+      "cv_macro_f1_std": 0.02222804317278629,
+      "n": 3453
+    },
+    {
+      "dataset": "Sentences_75Agree.txt",
+      "class_weight": null,
+      "C": 4.0,
+      "cv_macro_f1_mean": 0.7296469800304085,
+      "cv_macro_f1_std": 0.024034695428039068,
+      "n": 3453
+    }
+  ],
+  "binary_model_forced_neutral": {
+    "n_neutral_sentences": 1391,
+    "description": "The v0.1 binary model has no neutral class, so these genuinely neutral sentences were each forced to a side. At the production threshold of 0.70 the split is close to a coin flip, and neutral is 61% of the corpus.",
+    "results": {
+      "threshold_0.5": {
+        "positive": 1383,
+        "negative": 8,
+        "positive_pct": 99.4
+      },
+      "threshold_0.7": {
+        "positive": 754,
+        "negative": 637,
+        "positive_pct": 54.2
+      }
+    }
+  }
+}
